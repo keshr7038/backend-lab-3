@@ -16,6 +16,14 @@ This project is a local REST API for managing books. It uses Express and an exis
 
 The database file is `books.db` in this project folder. On startup, the app opens that database and creates the `book` table only if it does not already exist; it does not reset or reseed existing book records.
 
+## Vercel Deployment
+
+The Vercel deployment serves the bundled SQLite database in read-only mode.
+`GET /books` and `GET /books/:bookId` are available, while `POST`, `PUT`, and
+`DELETE` return HTTP 405. This avoids relying on Vercel's temporary serverless
+filesystem for persistent writes. Running the app locally with `npm start`
+continues to support all CRUD operations.
+
 ## Technologies Used
 
 - JavaScript and Node.js

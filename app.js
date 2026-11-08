@@ -7,10 +7,63 @@ const { open } = require('sqlite')
 const app = express()
 const port = Number(process.env.PORT) || 3000
 const dbPath = path.join(__dirname, 'books.db')
+const isVercelDeployment = process.env.VERCEL === '1'
 
 let db
+let dbInitialization
 
 app.use(express.json())
+
+async function initializeDatabase() {
+  if (!dbInitialization) {
+    dbInitialization = (async () => {
+      if (!fs.existsSync(dbPath)) {
+        throw new Error(`Database file was not found at ${dbPath}. Copy books.db into the lab-03 folder.`)
+      }
+
+      db = await open({
+        filename: dbPath,
+        driver: sqlite3.Database,
+        ...(isVercelDeployment ? { mode: sqlite3.OPEN_READONLY } : {}),
+      })
+
+      if (!isVercelDeployment) {
+        await db.exec(`
+          CREATE TABLE IF NOT EXISTS book (
+            id INTEGER PRIMARY KEY,
+            title TEXT,
+            author TEXT,
+            price INTEGER,
+            pages INTEGER
+          );
+        `)
+      }
+    })()
+  }
+
+  await dbInitialization
+}
+
+app.use((request, response, next) => {
+  if (isVercelDeployment && ['POST', 'PUT', 'DELETE'].includes(request.method)) {
+    response.set('Allow', 'GET')
+    return response.status(405).json({
+      success: false,
+      error: 'This deployment is read-only. POST, PUT, and DELETE are not available.',
+    })
+  }
+
+  next()
+})
+
+app.use(async (request, response, next) => {
+  try {
+    await initializeDatabase()
+    next()
+  } catch (error) {
+    next(error)
+  }
+})
 
 class ValidationError extends Error {
   constructor(message) {
@@ -271,20 +324,7 @@ app.use((error, request, response, next) => {
 
 async function startServer() {
   try {
-    if (!fs.existsSync(dbPath)) {
-      throw new Error(`Database file was not found at ${dbPath}. Copy books.db into the lab-03 folder.`)
-    }
-
-    db = await open({ filename: dbPath, driver: sqlite3.Database })
-    await db.exec(`
-      CREATE TABLE IF NOT EXISTS book (
-        id INTEGER PRIMARY KEY,
-        title TEXT,
-        author TEXT,
-        price INTEGER,
-        pages INTEGER
-      );
-    `)
+    await initializeDatabase()
 
     const server = app.listen(port, () => {
       console.log(`Server running at http://localhost:${port}`)
@@ -312,4 +352,8 @@ async function startServer() {
   }
 }
 
-startServer()
+module.exports = app
+
+if (require.main === module) {
+  startServer()
+}
