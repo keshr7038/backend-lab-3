@@ -1,8 +1,6 @@
 const path = require('path')
 const fs = require('fs')
 const express = require('express')
-const sqlite3 = require('sqlite3')
-const { open } = require('sqlite')
 
 const app = express()
 const port = Number(process.env.PORT) || 3000
@@ -21,13 +19,39 @@ async function initializeDatabase() {
         throw new Error(`Database file was not found at ${dbPath}. Copy books.db into the lab-03 folder.`)
       }
 
-      db = await open({
-        filename: dbPath,
-        driver: sqlite3.Database,
-        ...(isVercelDeployment ? { mode: sqlite3.OPEN_READONLY } : {}),
-      })
+      if (isVercelDeployment) {
+        const initializeSqlJs = require('sql.js')
+        const SQL = await initializeSqlJs({
+          locateFile: (filename) => path.join(path.dirname(require.resolve('sql.js')), filename),
+        })
+        const database = new SQL.Database(fs.readFileSync(dbPath))
 
-      if (!isVercelDeployment) {
+        db = {
+          all: async (sql, values = []) => {
+            const statement = database.prepare(sql, values)
+            const rows = []
+            try {
+              while (statement.step()) {
+                rows.push(statement.getAsObject())
+              }
+            } finally {
+              statement.free()
+            }
+            return rows
+          },
+          get: async (sql, values = []) => {
+            const statement = database.prepare(sql, values)
+            try {
+              return statement.step() ? statement.getAsObject() : undefined
+            } finally {
+              statement.free()
+            }
+          },
+        }
+      } else {
+        const sqlite3 = require('sqlite3')
+        const { open } = require('sqlite')
+        db = await open({ filename: dbPath, driver: sqlite3.Database })
         await db.exec(`
           CREATE TABLE IF NOT EXISTS book (
             id INTEGER PRIMARY KEY,
